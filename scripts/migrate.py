@@ -1,11 +1,15 @@
 # python scripts/migrate.py
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 
 import psycopg
 
 DB_URL = os.getenv("DATABASE_URL", "postgresql://app:app@localhost:5432/appdb")
 MIGRATIONS_DIR = Path("migrations")
+
+print("Migrating DB_URL =", DB_URL)
 
 
 def split_sql(sql: str) -> list[str]:
