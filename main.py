@@ -5,7 +5,7 @@ import psycopg
 from dotenv import load_dotenv
 import os
 
-from schemas.analyze import AnalyzeRequest
+from schemas.analyze import AnalyzeRequest, AnalyzeResponse
 from services.recommendation_service import analyze_meal
 
 load_dotenv()
@@ -168,7 +168,7 @@ def get_food_portions(food_id: int):
 
     return rows
 
-@app.post("/api/v1/analyze")
+@app.post("/api/v1/analyze", response_model=AnalyzeResponse)
 def analyze(request: AnalyzeRequest):
     if not request.items:
         raise HTTPException(status_code=400, detail="No foods provided")

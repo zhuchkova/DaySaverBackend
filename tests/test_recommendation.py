@@ -1,24 +1,61 @@
-from schemas.analyze import AnalyzeRequest, UserPreferences
-from services.recommendation_service import analyze_food
+import sys
+import os
 
-mock_food = {
-    "food_name": "White bread",
-    "kcal_per_100g": 265,
-    "protein_g_per_100g": 9,
-    "fat_g_per_100g": 3.2,
-    "carbs_g_per_100g": 49,
-    "fiber_g_per_100g": 2.7,
-    "sugars_g_per_100g": 5,
-    "gi_index": 75,
-}
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-request = AnalyzeRequest(
-    food_id=1,
-    portion_grams=50,
-    quantity=1,
-    user_preferences=UserPreferences(diet_type="vegan")
+from services.recommendation_service import (
+    generate_result_messages,
+    generate_recommendations,
 )
 
-result = analyze_food(request, mock_food)
 
-print(result.model_dump())
+def test_generate_result_messages_high_gl():
+    messages = generate_result_messages("High", protein=10, fiber=3)
+
+    assert any("high estimated glucose spike risk" in m.lower() for m in messages)
+    assert any("protein content is relatively low" in m.lower() for m in messages)
+    assert any("fiber is on the low side" in m.lower() for m in messages)
+
+
+def test_generate_result_messages_low_gl():
+    messages = generate_result_messages("Low", protein=28, fiber=11)
+
+    assert any("low estimated glucose spike risk" in m.lower() for m in messages)
+    assert any("strong protein base" in m.lower() for m in messages)
+    assert any("fiber content is strong" in m.lower() for m in messages)
+
+
+def test_generate_recommendations_vegan():
+    suggestions = generate_recommendations(
+        "High",
+        protein=10,
+        fiber=3,
+        diet_type="vegan",
+    )
+
+    assert any("tofu" in s.lower() or "hummus" in s.lower() or "soy yogurt" in s.lower() for s in suggestions)
+    assert len(suggestions) <= 3
+
+
+def test_generate_recommendations_vegetarian():
+    suggestions = generate_recommendations(
+        "Moderate",
+        protein=10,
+        fiber=3,
+        diet_type="vegetarian",
+    )
+
+    assert any("greek yogurt" in s.lower() or "skyr" in s.lower() or "eggs" in s.lower() for s in suggestions)
+    assert len(suggestions) <= 3
+
+
+def test_generate_recommendations_omnivore():
+    suggestions = generate_recommendations(
+        "Moderate",
+        protein=10,
+        fiber=3,
+        diet_type="omnivore",
+    )
+
+    assert any("eggs" in s.lower() or "lean meat" in s.lower() or "cottage cheese" in s.lower() for s in suggestions)
+    assert len(suggestions) <= 3

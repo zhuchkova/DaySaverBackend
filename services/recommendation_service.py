@@ -27,60 +27,74 @@ def categorize_gl(gl: float) -> str:
     return "High"
 
 
-def generate_result_messages(gl_category: str, protein: float, fiber: float):
+def generate_result_messages(gl_category: str, protein: float, fiber: float) -> list[str]:
     messages = []
 
     if gl_category == "High":
-        messages.append("This breakfast is likely to raise blood sugar quickly.")
-        messages.append("There may not be enough components to slow glucose release.")
-        messages.append("This can lead to an energy drop later.")
+        messages.append("This breakfast has a high estimated glucose spike risk.")
+        messages.append("The meal may digest quickly and lead to a faster rise in blood sugar.")
     elif gl_category == "Moderate":
-        messages.append("This breakfast may moderately impact blood sugar levels.")
+        messages.append("This breakfast has a moderate estimated glucose spike risk.")
     else:
-        messages.append("This breakfast has a low expected impact on blood sugar.")
+        messages.append("This breakfast has a low estimated glucose spike risk.")
 
     if protein >= 25:
-        messages.append("This breakfast contains a solid protein base for satiety.")
+        messages.append("It provides a strong protein base, which can support satiety.")
+    elif protein < 15:
+        messages.append("Protein content is relatively low for a balanced breakfast.")
 
     if fiber < 6:
-        messages.append("Fiber content may be insufficient to support stable glucose response.")
+        messages.append("Fiber is on the low side, which may reduce blood sugar stability.")
+    elif fiber >= 10:
+        messages.append("Fiber content is strong and may help slow glucose absorption.")
 
     return messages
 
 
-def generate_recommendations(gl_category: str, protein: float, fiber: float, diet_type: str):
+def generate_recommendations(
+    gl_category: str,
+    protein: float,
+    fiber: float,
+    diet_type: str,
+) -> list[str]:
     suggestions = []
 
-    if gl_category == "High" or fiber < 6:
-        suggestions.append("Add avocado or nuts to increase healthy fats.")
+    if gl_category == "High":
+        suggestions.append(
+            "Try pairing fast-digesting carbs with protein, fiber, or healthy fats to reduce spike risk."
+        )
 
-    if protein < 25:
+    if protein < 15:
         if diet_type == "vegan":
-            suggestions.append("Add tofu, lentils, or hummus for more protein.")
+            suggestions.append("Consider adding tofu, hummus, soy yogurt, or seeds for more protein.")
         elif diet_type == "vegetarian":
-            suggestions.append("Add Greek yogurt, skyr, eggs, or tofu for more protein.")
+            suggestions.append("Consider adding Greek yogurt, skyr, eggs, or tofu for more protein.")
         else:
-            suggestions.append("Add eggs or lean meat for more protein.")
+            suggestions.append("Consider adding eggs, Greek yogurt, cottage cheese, or lean meat for more protein.")
 
     if fiber < 6:
-        suggestions.append("Add vegetables, berries, or seeds to increase fiber.")
+        suggestions.append("Add berries, vegetables, seeds, or whole-grain options to increase fiber.")
 
-    return suggestions
+    if (gl_category == "High" or fiber < 6) and len(suggestions) < 3:
+        suggestions.append("Adding avocado, nuts, or nut butter may help slow glucose absorption.")
+
+    return suggestions[:3]
 
 
 def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
-    # Key by (food_id, portion_id) because same food can appear with different joined portion rows
     row_map = {(row["food_id"], row["portion_id"]): row for row in rows}
 
-    total_kcal = 0
-    total_protein = 0
-    total_fat = 0
-    total_carbs = 0
-    total_fiber = 0
-    total_sugars = 0
-    total_grams = 0
-    total_gl = 0
-    gi_values = []
+    total_kcal = 0.0
+    total_protein = 0.0
+    total_fat = 0.0
+    total_carbs = 0.0
+    total_fiber = 0.0
+    total_sugars = 0.0
+    total_grams = 0.0
+    total_gl = 0.0
+
+    weighted_gi_sum = 0.0
+    total_available_carbs = 0.0
 
     food_breakdown = []
 
@@ -91,15 +105,16 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
 
         grams = float(row["gram_weight"]) * item.quantity
 
-        kcal = scale_per_100g(row["kcal_per_100g"], grams)
-        protein = scale_per_100g(row["protein_g_per_100g"], grams)
-        fat = scale_per_100g(row["fat_g_per_100g"], grams)
-        carbs = scale_per_100g(row["carbs_g_per_100g"], grams)
-        fiber = scale_per_100g(row["fiber_g_per_100g"], grams)
-        sugars = scale_per_100g(row["sugars_g_per_100g"], grams)
+        kcal = scale_per_100g(row.get("kcal_per_100g"), grams)
+        protein = scale_per_100g(row.get("protein_g_per_100g"), grams)
+        fat = scale_per_100g(row.get("fat_g_per_100g"), grams)
+        carbs = scale_per_100g(row.get("carbs_g_per_100g"), grams)
+        fiber = scale_per_100g(row.get("fiber_g_per_100g"), grams)
+        sugars = scale_per_100g(row.get("sugars_g_per_100g"), grams)
 
-        gi = float(row["gi_index"]) if row["gi_index"] is not None else 50.0
+        gi = float(row["gi_index"]) if row.get("gi_index") is not None else 50.0
         gl = calculate_glycemic_load(carbs, fiber, gi)
+        available_carbs = max(carbs - fiber, 0)
 
         total_kcal += kcal
         total_protein += protein
@@ -109,7 +124,9 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
         total_sugars += sugars
         total_grams += grams
         total_gl += gl
-        gi_values.append(gi)
+
+        weighted_gi_sum += gi * available_carbs
+        total_available_carbs += available_carbs
 
         food_breakdown.append(
             FoodBreakdown(
@@ -131,16 +148,19 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
             )
         )
 
-    avg_gi = sum(gi_values) / len(gi_values) if gi_values else 50.0
+    avg_gi = weighted_gi_sum / total_available_carbs if total_available_carbs > 0 else 50.0
     category = categorize_gl(total_gl)
 
     diet_type = "omnivore"
-    if request.user_preferences:
+    if request.user_preferences and request.user_preferences.diet_type:
         diet_type = request.user_preferences.diet_type
 
     result_messages = generate_result_messages(category, total_protein, total_fiber)
     recommendation_suggestions = generate_recommendations(
-        category, total_protein, total_fiber, diet_type
+        category,
+        total_protein,
+        total_fiber,
+        diet_type,
     )
 
     return AnalyzeResponse(

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 
@@ -9,7 +9,7 @@ class UserPreferences(BaseModel):
 class MealItem(BaseModel):
     food_id: int
     portion_id: int
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1)
 
 
 class AnalyzeRequest(BaseModel):
