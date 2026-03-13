@@ -1,0 +1,2 @@
+ALTER TABLE foods
+ADD COLUMN emoji TEXT DEFAULT '🍽️';

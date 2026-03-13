@@ -30,7 +30,26 @@ def get_connection():
 @app.get("/api/v1/catalog")
 def get_catalog():
     query = """
-        SELECT *
+        SELECT
+            category_name,
+            category_emoji,
+            food_id,
+            food_name,
+            emoji,
+            description,
+            kcal_per_100g,
+            protein_g_per_100g,
+            fat_g_per_100g,
+            carbs_g_per_100g,
+            fiber_g_per_100g,
+            sugars_g_per_100g,
+            gi_index,
+            gi_category,
+            portion_id,
+            portion_label,
+            unit_name,
+            gram_weight,
+            display_order
         FROM foods_with_portions
         ORDER BY category_name, food_name, display_order;
     """
@@ -40,7 +59,6 @@ def get_catalog():
             cur.execute(query)
             rows = cur.fetchall()
 
-    # reshape flat SQL rows into nested JSON
     categories = {}
 
     for row in rows:
@@ -50,6 +68,7 @@ def get_catalog():
         if category_name not in categories:
             categories[category_name] = {
                 "category_name": category_name,
+                "category_emoji": row["category_emoji"],
                 "foods": {}
             }
 
@@ -57,6 +76,7 @@ def get_catalog():
             categories[category_name]["foods"][food_id] = {
                 "food_id": food_id,
                 "name": row["food_name"],
+                "emoji": row["emoji"],
                 "description": row["description"],
                 "macros_per_100g": {
                     "kcal": float(row["kcal_per_100g"]) if row["kcal_per_100g"] is not None else None,
@@ -67,13 +87,12 @@ def get_catalog():
                     "sugars_g": float(row["sugars_g_per_100g"]) if row["sugars_g_per_100g"] is not None else None,
                 },
                 "gi": {
-                    "value": row["gi_index"],
+                    "value": float(row["gi_index"]) if row["gi_index"] is not None else None,
                     "category": row["gi_category"]
                 },
                 "portions": []
             }
 
-        # add portion if present
         if row["portion_id"] is not None:
             categories[category_name]["foods"][food_id]["portions"].append({
                 "portion_id": row["portion_id"],
@@ -83,19 +102,36 @@ def get_catalog():
                 "display_order": row["display_order"]
             })
 
-    # convert foods dict -> list
     result = []
     for category in categories.values():
         category["foods"] = list(category["foods"].values())
         result.append(category)
 
-    return result
+    return {"categories": result}
 
 
 @app.get("/api/v1/foods/search")
 def search_foods(q: str = Query(..., min_length=1)):
     query = """
-        SELECT *
+        SELECT
+            category_name,
+            food_id,
+            food_name,
+            emoji,
+            description,
+            kcal_per_100g,
+            protein_g_per_100g,
+            fat_g_per_100g,
+            carbs_g_per_100g,
+            fiber_g_per_100g,
+            sugars_g_per_100g,
+            gi_index,
+            gi_category,
+            portion_id,
+            portion_label,
+            unit_name,
+            gram_weight,
+            display_order
         FROM foods_with_portions
         WHERE food_name ILIKE %(search)s
         ORDER BY food_name, display_order;
@@ -115,6 +151,7 @@ def search_foods(q: str = Query(..., min_length=1)):
             foods[food_id] = {
                 "food_id": food_id,
                 "name": row["food_name"],
+                "emoji": row["emoji"],
                 "description": row["description"],
                 "category_name": row["category_name"],
                 "macros_per_100g": {
@@ -141,7 +178,10 @@ def search_foods(q: str = Query(..., min_length=1)):
                 "display_order": row["display_order"]
             })
 
-    return list(foods.values())
+    return {
+        "query": q,
+        "foods": list(foods.values())
+    }
 
 
 @app.get("/api/v1/foods/{food_id}/portions")
@@ -166,7 +206,21 @@ def get_food_portions(food_id: int):
     if not rows:
         raise HTTPException(status_code=404, detail="No portions found")
 
-    return rows
+    portions = [
+        {
+            "portion_id": row["id"],
+            "label": row["label"],
+            "unit_name": row["unit_name"],
+            "gram_weight": float(row["gram_weight"]),
+            "display_order": row["display_order"],
+        }
+        for row in rows
+    ]
+
+    return {
+        "food_id": food_id,
+        "portions": portions
+    }
 
 @app.post("/api/v1/analyze", response_model=AnalyzeResponse)
 def analyze(request: AnalyzeRequest):
