@@ -163,7 +163,7 @@ def search_foods(q: str = Query(..., min_length=1)):
                     "sugars_g": float(row["sugars_g_per_100g"]) if row["sugars_g_per_100g"] is not None else None,
                 },
                 "gi": {
-                    "value": row["gi_index"],
+                    "value": float(row["gi_index"]) if row["gi_index"] is not None else None,
                     "category": row["gi_category"]
                 },
                 "portions": []
@@ -280,25 +280,27 @@ def analyze(
         raise HTTPException(status_code=400, detail="No foods provided")
 
     query = """
-    SELECT
-        f.id AS food_id,
-        f.name AS food_name,
-        f.kcal_per_100g,
-        f.protein_g_per_100g,
-        f.fat_g_per_100g,
-        f.carbs_g_per_100g,
-        f.fiber_g_per_100g,
-        f.sugars_g_per_100g,
-        gi.value AS gi_index,
-        p.id AS portion_id,
-        p.label AS portion_label,
-        p.gram_weight
-    FROM foods f
-    JOIN portions p ON p.food_id = f.id
-    LEFT JOIN gi ON gi.food_id = f.id
-    WHERE f.id = ANY(%(food_ids)s)
-      AND p.id = ANY(%(portion_ids)s)
-    """
+            SELECT f.id     AS food_id,
+                   f.name   AS food_name,
+                   f.emoji,
+                   fi.short_label,
+                   f.kcal_per_100g,
+                   f.protein_g_per_100g,
+                   f.fat_g_per_100g,
+                   f.carbs_g_per_100g,
+                   f.fiber_g_per_100g,
+                   f.sugars_g_per_100g,
+                   gi.value AS gi_index,
+                   p.id     AS portion_id,
+                   p.label  AS portion_label,
+                   p.gram_weight
+            FROM foods f
+                     JOIN portions p ON p.food_id = f.id
+                     LEFT JOIN gi ON gi.food_id = f.id
+                     LEFT JOIN food_insights fi ON fi.food_id = f.id
+            WHERE f.id = ANY (%(food_ids)s)
+              AND p.id = ANY (%(portion_ids)s)
+            """
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -312,3 +314,38 @@ def analyze(
         raise HTTPException(status_code=404, detail="No matching foods/portions found")
 
     return analyze_meal(request, rows)
+
+
+@app.get("/api/v1/foods/{food_id}/insight")
+def get_food_insight(food_id: int):
+    query = """
+    SELECT
+        f.id AS food_id,
+        f.name,
+        f.emoji,
+        fi.short_label,
+        fi.theme,
+        fi.headline,
+        fi.subtitle,
+        fi.body,
+        fi.effects,
+        fi.warning_title,
+        fi.warning_body,
+        fi.education_title,
+        fi.education_body,
+        fi.highlight_title,
+        fi.highlight_points
+    FROM foods f
+    JOIN food_insights fi ON fi.food_id = f.id
+    WHERE f.id = %(food_id)s
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, {"food_id": food_id})
+            row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Food insight not found")
+
+    return row

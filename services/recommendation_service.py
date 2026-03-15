@@ -7,8 +7,10 @@ from schemas.analyze import (
     FoodBreakdown,
     SatietyBlock,
     SwapRecommendation,
+    EnergyBlock,
+    HungerBlock,
+    IngredientCard,
 )
-
 
 def scale_per_100g(value_per_100g, grams: float) -> float:
     if value_per_100g is None:
@@ -156,6 +158,45 @@ def generate_swap_recommendations(food_names: list[str]) -> list[SwapRecommendat
     return swaps[:3]
 
 
+def generate_energy_block(gl_category: str) -> tuple[str, str]:
+    if gl_category == "High":
+        return (
+            "Good start, possible dip later",
+            "Quick energy at first due to rapidly available carbohydrates."
+        )
+    elif gl_category == "Moderate":
+        return (
+            "Moderate energy pattern",
+            "Energy may feel stable at first, with some chance of a dip later."
+        )
+    return (
+        "More stable energy",
+        "This meal is less likely to cause a rapid rise and fall in energy."
+    )
+
+
+def generate_hunger_block(gl_category: str, satiety_level: str) -> tuple[str, str]:
+    if gl_category == "High" and satiety_level == "Low":
+        return (
+            "Blood Sugar & Hunger",
+            "A fast rise followed by a drop may lead to earlier hunger and cravings."
+        )
+    elif gl_category == "High":
+        return (
+            "Blood Sugar & Hunger",
+            "If blood sugar drops, the body may signal a need for quick energy, which can feel like hunger or sweet cravings before noon."
+        )
+    elif satiety_level == "Low":
+        return (
+            "Blood Sugar & Hunger",
+            "Because this meal may not keep you full for long, hunger could come back sooner."
+        )
+    return (
+        "Blood Sugar & Hunger",
+        "This breakfast is more likely to support steadier fullness through the morning."
+    )
+
+
 def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
     row_map = {(row["food_id"], row["portion_id"]): row for row in rows}
 
@@ -173,6 +214,8 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
 
     food_breakdown = []
     selected_food_names = []
+    ingredient_cards = []
+    seen_food_ids = set()
 
     for item in request.items:
         row = row_map.get((item.food_id, item.portion_id))
@@ -206,6 +249,17 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
 
         selected_food_names.append(row["food_name"])
 
+        if item.food_id not in seen_food_ids:
+            ingredient_cards.append(
+                IngredientCard(
+                    food_id=item.food_id,
+                    name=row["food_name"],
+                    emoji=row.get("emoji"),
+                    short_label=row.get("short_label") or "Breakfast Food",
+                )
+            )
+            seen_food_ids.add(item.food_id)
+
         food_breakdown.append(
             FoodBreakdown(
                 food_id=item.food_id,
@@ -231,6 +285,9 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
 
     satiety_score = calculate_satiety_score(total_protein, total_fiber, total_fat)
     satiety_level = categorize_satiety(satiety_score)
+
+    energy_level, energy_message = generate_energy_block(spike_category)
+    hunger_title, hunger_message = generate_hunger_block(spike_category, satiety_level)
 
     diet_type = "omnivore"
     if request.user_preferences and request.user_preferences.diet_type:
@@ -270,6 +327,15 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
             score=round(satiety_score, 1),
             level=satiety_level,
         ),
+        energy=EnergyBlock(
+            level=energy_level,
+            message=energy_message,
+        ),
+        hunger=HungerBlock(
+            title=hunger_title,
+            message=hunger_message,
+        ),
+        ingredient_cards=ingredient_cards,
         result=ResultBlock(messages=result_messages),
         recommendation=RecommendationBlock(suggestions=recommendation_suggestions),
         swaps=swaps,
