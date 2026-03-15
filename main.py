@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 import psycopg
@@ -222,13 +222,62 @@ def get_food_portions(food_id: int):
         "portions": portions
     }
 
-@app.post("/api/v1/analyze", response_model=AnalyzeResponse)
-def analyze(request: AnalyzeRequest):
-    if not request.items:
-        raise HTTPException(status_code=400, detail="No foods provided")
 
+@app.post("/api/v1/analyze", response_model=AnalyzeResponse)
+def analyze(
+    request: AnalyzeRequest = Body(
+        ...,
+        openapi_examples={
+            "croissant_and_juice": {
+                "summary": "Croissant and orange juice (omnivore)",
+                "description": "Example breakfast with croissant and orange juice",
+                "value": {
+                    "items": [
+                        {
+                            "food_id": 148,
+                            "portion_id": 196,
+                            "quantity": 1
+                        },
+                        {
+                            "food_id": 18,
+                            "portion_id": 53,
+                            "quantity": 1
+                        }
+                    ],
+                    "user_preferences": {
+                        "diet_type": "omnivore"
+                    }
+                },
+            },
+            "bread_and_avocado": {
+                "summary": "White bread and avocado (vegetarian)",
+                "description": "Example breakfast with white bread and avocado",
+                "value": {
+                    "items": [
+                        {
+                            "food_id": 8,
+                            "portion_id": 23,
+                            "quantity": 1
+                        },
+                        {
+                            "food_id": 156,
+                            "portion_id": 221,
+                            "quantity": 1
+                        }
+                    ],
+                    "user_preferences": {
+                        "diet_type": "vegetarian"
+                    }
+                },
+            },
+        },
+    )
+):
     food_ids = [item.food_id for item in request.items]
     portion_ids = [item.portion_id for item in request.items]
+
+    if not food_ids:
+        raise HTTPException(status_code=400, detail="No foods provided")
 
     query = """
     SELECT
