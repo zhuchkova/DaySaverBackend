@@ -5,6 +5,8 @@ from schemas.analyze import (
     ResultBlock,
     RecommendationBlock,
     FoodBreakdown,
+    SatietyBlock,
+    SwapRecommendation,
 )
 
 
@@ -27,7 +29,19 @@ def categorize_gl(gl: float) -> str:
     return "High"
 
 
-def generate_result_messages(gl_category: str, protein: float, fiber: float) -> list[str]:
+def calculate_satiety_score(protein: float, fiber: float, fat: float) -> float:
+    return protein + fiber * 2 + fat * 0.5
+
+
+def categorize_satiety(score: float) -> str:
+    if score < 12:
+        return "Low"
+    elif score < 25:
+        return "Moderate"
+    return "High"
+
+
+def generate_result_messages(gl_category: str, protein: float, fiber: float, satiety_level: str) -> list[str]:
     messages = []
 
     if gl_category == "High":
@@ -48,6 +62,11 @@ def generate_result_messages(gl_category: str, protein: float, fiber: float) -> 
     elif fiber >= 10:
         messages.append("Fiber content is strong and may help slow glucose absorption.")
 
+    if satiety_level == "Low":
+        messages.append("It may not keep you full for very long.")
+    elif satiety_level == "High":
+        messages.append("It is likely to be quite filling.")
+
     return messages
 
 
@@ -56,8 +75,32 @@ def generate_recommendations(
     protein: float,
     fiber: float,
     diet_type: str,
+    satiety_level: str,
 ) -> list[str]:
     suggestions = []
+
+    protein_sources = {
+        "vegan": [
+            "tofu",
+            "hummus",
+            "soy yogurt",
+            "seeds",
+        ],
+        "vegetarian": [
+            "Greek yogurt",
+            "skyr",
+            "eggs",
+            "tofu",
+        ],
+        "omnivore": [
+            "eggs",
+            "Greek yogurt",
+            "cottage cheese",
+            "turkey slices",
+        ],
+    }
+
+    chosen_protein_sources = protein_sources.get(diet_type, protein_sources["omnivore"])
 
     if gl_category == "High":
         suggestions.append(
@@ -65,20 +108,52 @@ def generate_recommendations(
         )
 
     if protein < 15:
-        if diet_type == "vegan":
-            suggestions.append("Consider adding tofu, hummus, soy yogurt, or seeds for more protein.")
-        elif diet_type == "vegetarian":
-            suggestions.append("Consider adding Greek yogurt, skyr, eggs, or tofu for more protein.")
-        else:
-            suggestions.append("Consider adding eggs, Greek yogurt, cottage cheese, or lean meat for more protein.")
+        suggestions.append(
+            f"Consider adding {chosen_protein_sources[0]}, {chosen_protein_sources[1]}, or {chosen_protein_sources[2]} for more protein."
+        )
 
     if fiber < 6:
         suggestions.append("Add berries, vegetables, seeds, or whole-grain options to increase fiber.")
+
+    if satiety_level == "Low" and len(suggestions) < 3:
+        suggestions.append("Adding more protein, fiber, or healthy fats may help keep you full for longer.")
 
     if (gl_category == "High" or fiber < 6) and len(suggestions) < 3:
         suggestions.append("Adding avocado, nuts, or nut butter may help slow glucose absorption.")
 
     return suggestions[:3]
+
+
+def generate_swap_recommendations(food_names: list[str]) -> list[SwapRecommendation]:
+    swap_rules = {
+        "Bread - white": ("Bread - whole grain", "lower glycemic load"),
+        "Croissant": ("Eggs", "more protein and lower spike risk"),
+        "Nutella": ("Butter - peanut", "more protein and less sugar"),
+        "Jam": ("Butter - peanut", "less sugar and more satiety"),
+        "Juice - orange": ("Oranges", "more fiber and lower glycemic load"),
+        "Juice - apple": ("Apples", "more fiber and lower glycemic load"),
+        "Milk - chocolate": ("Milk - whole", "less sugar"),
+        "Yogurt - greek sweetened": ("Yogurt - greek", "less sugar"),
+        "Sugar": ("Stevia", "lower glycemic impact"),
+        "Waffle": ("Pancakes", "potentially easier to balance with protein"),
+    }
+
+    swaps = []
+    seen = set()
+
+    for food_name in food_names:
+        if food_name in swap_rules and food_name not in seen:
+            to_food, reason = swap_rules[food_name]
+            swaps.append(
+                SwapRecommendation(
+                    from_food=food_name,
+                    to_food=to_food,
+                    reason=reason,
+                )
+            )
+            seen.add(food_name)
+
+    return swaps[:3]
 
 
 def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
@@ -97,6 +172,7 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
     total_available_carbs = 0.0
 
     food_breakdown = []
+    selected_food_names = []
 
     for item in request.items:
         row = row_map.get((item.food_id, item.portion_id))
@@ -128,6 +204,8 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
         weighted_gi_sum += gi * available_carbs
         total_available_carbs += available_carbs
 
+        selected_food_names.append(row["food_name"])
+
         food_breakdown.append(
             FoodBreakdown(
                 food_id=item.food_id,
@@ -149,19 +227,31 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
         )
 
     avg_gi = weighted_gi_sum / total_available_carbs if total_available_carbs > 0 else 50.0
-    category = categorize_gl(total_gl)
+    spike_category = categorize_gl(total_gl)
+
+    satiety_score = calculate_satiety_score(total_protein, total_fiber, total_fat)
+    satiety_level = categorize_satiety(satiety_score)
 
     diet_type = "omnivore"
     if request.user_preferences and request.user_preferences.diet_type:
         diet_type = request.user_preferences.diet_type
 
-    result_messages = generate_result_messages(category, total_protein, total_fiber)
+    result_messages = generate_result_messages(
+        spike_category,
+        total_protein,
+        total_fiber,
+        satiety_level,
+    )
+
     recommendation_suggestions = generate_recommendations(
-        category,
+        spike_category,
         total_protein,
         total_fiber,
         diet_type,
+        satiety_level,
     )
+
+    swaps = generate_swap_recommendations(selected_food_names)
 
     return AnalyzeResponse(
         total_grams=round(total_grams, 1),
@@ -175,8 +265,13 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
         ),
         average_glycemic_index=round(avg_gi, 1),
         total_glycemic_load=round(total_gl, 1),
-        spike_category=category,
+        spike_category=spike_category,
+        satiety=SatietyBlock(
+            score=round(satiety_score, 1),
+            level=satiety_level,
+        ),
         result=ResultBlock(messages=result_messages),
         recommendation=RecommendationBlock(suggestions=recommendation_suggestions),
+        swaps=swaps,
         foods=food_breakdown,
     )

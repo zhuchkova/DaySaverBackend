@@ -9,8 +9,8 @@ from services.recommendation_service import analyze_meal
 def test_analyze_meal_single_item():
     mock_rows = [
         {
-            "food_id": 1,
-            "food_name": "White bread",
+            "food_id": 8,
+            "food_name": "Bread - white",
             "portion_id": 1,
             "portion_label": "1 slice",
             "gram_weight": 50,
@@ -25,7 +25,7 @@ def test_analyze_meal_single_item():
     ]
 
     request = AnalyzeRequest(
-        items=[MealItem(food_id=1, portion_id=1, quantity=1)],
+        items=[MealItem(food_id=8, portion_id=1, quantity=1)],
         user_preferences=UserPreferences(diet_type="vegan"),
     )
 
@@ -36,15 +36,22 @@ def test_analyze_meal_single_item():
     assert round(result.total_macros.protein_g, 1) == 4.5
     assert round(result.total_macros.carbs_g, 1) == 24.5
     assert result.spike_category in ["Low", "Moderate", "High"]
+
+    assert result.satiety.score >= 0
+    assert result.satiety.level in ["Low", "Moderate", "High"]
+
     assert len(result.foods) == 1
-    assert result.foods[0].food_name == "White bread"
+    assert result.foods[0].food_name == "Bread - white"
+
+    assert len(result.result.messages) >= 1
+    assert len(result.recommendation.suggestions) >= 1
 
 
-def test_analyze_meal_two_foods():
+def test_analyze_meal_two_foods_with_swap():
     mock_rows = [
         {
-            "food_id": 1,
-            "food_name": "White bread",
+            "food_id": 8,
+            "food_name": "Bread - white",
             "portion_id": 1,
             "portion_label": "1 slice",
             "gram_weight": 50,
@@ -57,7 +64,7 @@ def test_analyze_meal_two_foods():
             "gi_index": 75,
         },
         {
-            "food_id": 2,
+            "food_id": 156,
             "food_name": "Avocado",
             "portion_id": 2,
             "portion_label": "1/2 avocado",
@@ -74,8 +81,8 @@ def test_analyze_meal_two_foods():
 
     request = AnalyzeRequest(
         items=[
-            MealItem(food_id=1, portion_id=1, quantity=1),
-            MealItem(food_id=2, portion_id=2, quantity=1),
+            MealItem(food_id=8, portion_id=1, quantity=1),
+            MealItem(food_id=156, portion_id=2, quantity=1),
         ],
         user_preferences=UserPreferences(diet_type="vegetarian"),
     )
@@ -90,12 +97,17 @@ def test_analyze_meal_two_foods():
     assert result.total_glycemic_load > 0
     assert result.spike_category in ["Low", "Moderate", "High"]
 
+    assert result.satiety.score >= 0
+    assert result.satiety.level in ["Low", "Moderate", "High"]
+
+    assert any(s.from_food == "Bread - white" for s in result.swaps)
+
 
 def test_analyze_meal_ignores_missing_food_portion_pair():
     mock_rows = [
         {
-            "food_id": 1,
-            "food_name": "White bread",
+            "food_id": 8,
+            "food_name": "Bread - white",
             "portion_id": 1,
             "portion_label": "1 slice",
             "gram_weight": 50,
@@ -110,9 +122,7 @@ def test_analyze_meal_ignores_missing_food_portion_pair():
     ]
 
     request = AnalyzeRequest(
-        items=[
-            MealItem(food_id=999, portion_id=999, quantity=1),  # missing pair
-        ],
+        items=[MealItem(food_id=999, portion_id=999, quantity=1)],
         user_preferences=UserPreferences(diet_type="omnivore"),
     )
 
@@ -122,4 +132,7 @@ def test_analyze_meal_ignores_missing_food_portion_pair():
     assert result.total_macros.kcal == 0.0
     assert result.total_glycemic_load == 0.0
     assert result.average_glycemic_index == 50.0
+    assert result.satiety.score == 0.0
+    assert result.satiety.level == "Low"
     assert len(result.foods) == 0
+    assert len(result.swaps) == 0
