@@ -7,6 +7,8 @@ from services.recommendation_service import (
     generate_result_messages,
     generate_recommendations,
     generate_swap_recommendations,
+    generate_energy_block,
+    generate_hunger_block,
 )
 
 
@@ -47,7 +49,10 @@ def test_generate_recommendations_vegan():
         satiety_level="Low",
     )
 
-    assert any("tofu" in s.lower() or "hummus" in s.lower() or "soy yogurt" in s.lower() for s in suggestions)
+    assert any(
+        "tofu" in s.lower() or "hummus" in s.lower() or "soy yogurt" in s.lower()
+        for s in suggestions
+    )
     assert len(suggestions) <= 3
 
 
@@ -60,7 +65,10 @@ def test_generate_recommendations_vegetarian():
         satiety_level="Moderate",
     )
 
-    assert any("greek yogurt" in s.lower() or "skyr" in s.lower() or "eggs" in s.lower() for s in suggestions)
+    assert any(
+        "greek yogurt" in s.lower() or "skyr" in s.lower() or "eggs" in s.lower()
+        for s in suggestions
+    )
     assert len(suggestions) <= 3
 
 
@@ -73,7 +81,10 @@ def test_generate_recommendations_omnivore():
         satiety_level="Low",
     )
 
-    assert any("eggs" in s.lower() or "cottage cheese" in s.lower() or "turkey slices" in s.lower() for s in suggestions)
+    assert any(
+        "eggs" in s.lower() or "cottage cheese" in s.lower() or "turkey slices" in s.lower()
+        for s in suggestions
+    )
     assert len(suggestions) <= 3
 
 
@@ -85,5 +96,35 @@ def test_generate_swap_recommendations():
     ])
 
     assert len(swaps) >= 1
-    assert any(s.from_food == "Bread - white" and s.to_food == "Bread - whole grain" for s in swaps)
-    assert any(s.from_food == "Nutella" and s.to_food == "Butter - peanut" for s in swaps)
+    assert any(
+        s.from_food == "Bread - white" and s.to_food == "Bread - whole grain"
+        for s in swaps
+    )
+    assert any(
+        s.from_food == "Nutella" and s.to_food == "Butter - peanut"
+        for s in swaps
+    )
+
+
+def test_generate_energy_block_high():
+    level, message = generate_energy_block("High")
+    assert "dip later" in level.lower()
+    assert "quick energy" in message.lower()
+
+
+def test_generate_energy_block_low():
+    level, message = generate_energy_block("Low")
+    assert "stable" in level.lower()
+    assert "less likely" in message.lower()
+
+
+def test_generate_hunger_block_high_low_satiety():
+    title, message = generate_hunger_block("High", "Low")
+    assert title == "Blood Sugar & Hunger"
+    assert "earlier hunger" in message.lower() or "cravings" in message.lower()
+
+
+def test_generate_hunger_block_low_high_satiety():
+    title, message = generate_hunger_block("Low", "High")
+    assert title == "Blood Sugar & Hunger"
+    assert "steadier fullness" in message.lower()

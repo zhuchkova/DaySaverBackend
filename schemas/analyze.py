@@ -3,13 +3,13 @@ from typing import List, Optional
 
 
 class UserPreferences(BaseModel):
-    diet_type: str = Field(default="omnivore", example="vegetarian")
+    diet_type: str = "omnivore"
 
 
 class MealItem(BaseModel):
-    food_id: int = Field(..., example=8)
-    portion_id: int = Field(..., example=23)
-    quantity: int = Field(default=1, ge=1, example=1)
+    food_id: int
+    portion_id: int
+    quantity: int = Field(default=1, ge=1)
 
 
 class AnalyzeRequest(BaseModel):
@@ -45,6 +45,23 @@ class SatietyBlock(BaseModel):
     level: str
 
 
+class EnergyBlock(BaseModel):
+    level: str
+    message: str
+
+
+class HungerBlock(BaseModel):
+    title: str
+    message: str
+
+
+class IngredientCard(BaseModel):
+    food_id: int
+    name: str
+    emoji: Optional[str] = None
+    short_label: str
+
+
 class FoodBreakdown(BaseModel):
     food_id: int
     food_name: str
@@ -63,6 +80,9 @@ class AnalyzeResponse(BaseModel):
     total_glycemic_load: float
     spike_category: str
     satiety: SatietyBlock
+    energy: EnergyBlock
+    hunger: HungerBlock
+    ingredient_cards: List[IngredientCard]
     result: ResultBlock
     recommendation: RecommendationBlock
     swaps: List[SwapRecommendation]
@@ -87,6 +107,28 @@ class AnalyzeResponse(BaseModel):
                     "score": 16.6,
                     "level": "Moderate"
                 },
+                "energy": {
+                    "level": "Good start, possible dip later",
+                    "message": "Quick energy at first due to rapidly available carbohydrates."
+                },
+                "hunger": {
+                    "title": "Blood Sugar & Hunger",
+                    "message": "If blood sugar drops, the body may signal a need for quick energy, which can feel like hunger or sweet cravings before noon."
+                },
+                "ingredient_cards": [
+                    {
+                        "food_id": 148,
+                        "name": "Croissant",
+                        "emoji": "🥐",
+                        "short_label": "Refined Carb"
+                    },
+                    {
+                        "food_id": 18,
+                        "name": "Juice - orange",
+                        "emoji": "🧃",
+                        "short_label": "Quick Sugar"
+                    }
+                ],
                 "result": {
                     "messages": [
                         "This breakfast has a high estimated glucose spike risk.",
