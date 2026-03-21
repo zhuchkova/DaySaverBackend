@@ -12,18 +12,11 @@ load_dotenv()
 
 app = FastAPI(title="DaySaver API")
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[""],
-    allow_credentials=False,  # ← change this allow_methods=[""],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
