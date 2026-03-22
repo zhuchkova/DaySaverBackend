@@ -126,34 +126,73 @@ def generate_recommendations(
     return suggestions[:3]
 
 
-def generate_swap_recommendations(food_names: list[str]) -> list[SwapRecommendation]:
+def generate_swap_recommendations(
+    food_names: list[str],
+    diet_type: str,
+) -> list[SwapRecommendation]:
     swap_rules = {
-        "Bread - white": ("Bread - whole grain", "lower glycemic load"),
-        "Croissant": ("Eggs", "more protein and lower spike risk"),
-        "Nutella": ("Butter - peanut", "more protein and less sugar"),
-        "Jam": ("Butter - peanut", "less sugar and more satiety"),
-        "Juice - orange": ("Oranges", "more fiber and lower glycemic load"),
-        "Juice - apple": ("Apples", "more fiber and lower glycemic load"),
-        "Milk - chocolate": ("Milk - whole", "less sugar"),
-        "Yogurt - greek sweetened": ("Yogurt - greek", "less sugar"),
-        "Sugar": ("Stevia", "lower glycemic impact"),
-        "Waffle": ("Pancakes", "potentially easier to balance with protein"),
+        "Bread - white": {
+            "default": ("Bread - whole grain", "lower glycemic load"),
+        },
+        "Croissant": {
+            "vegan": ("Tofu", "more protein and lower spike risk"),
+            "vegetarian": ("Eggs", "more protein and lower spike risk"),
+            "omnivore": ("Eggs", "more protein and lower spike risk"),
+        },
+        "Nutella": {
+            "default": ("Butter - peanut", "more protein and less sugar"),
+        },
+        "Jam": {
+            "default": ("Butter - peanut", "less sugar and more satiety"),
+        },
+        "Juice - orange": {
+            "default": ("Oranges", "more fiber and lower glycemic load"),
+        },
+        "Juice - apple": {
+            "default": ("Apples", "more fiber and lower glycemic load"),
+        },
+        "Milk - chocolate": {
+            "default": ("Milk - whole", "less sugar"),
+        },
+        "Yogurt - greek sweetened": {
+            "vegan": ("Tofu", "plant-based protein option with less sugar"),
+            "vegetarian": ("Yogurt - greek", "less sugar"),
+            "omnivore": ("Yogurt - greek", "less sugar"),
+        },
+        "Sugar": {
+            "default": ("Stevia", "lower glycemic impact"),
+        },
+        "Waffle": {
+            "vegan": ("Oatmeal", "more fiber and easier to balance"),
+            "vegetarian": ("Pancakes", "potentially easier to balance with protein"),
+            "omnivore": ("Pancakes", "potentially easier to balance with protein"),
+        },
     }
 
     swaps = []
     seen = set()
 
     for food_name in food_names:
-        if food_name in swap_rules and food_name not in seen:
-            to_food, reason = swap_rules[food_name]
-            swaps.append(
-                SwapRecommendation(
-                    from_food=food_name,
-                    to_food=to_food,
-                    reason=reason,
-                )
+        if food_name not in swap_rules or food_name in seen:
+            continue
+
+        rule = swap_rules[food_name]
+
+        if diet_type in rule:
+            to_food, reason = rule[diet_type]
+        elif "default" in rule:
+            to_food, reason = rule["default"]
+        else:
+            continue
+
+        swaps.append(
+            SwapRecommendation(
+                from_food=food_name,
+                to_food=to_food,
+                reason=reason,
             )
-            seen.add(food_name)
+        )
+        seen.add(food_name)
 
     return swaps[:3]
 
@@ -308,7 +347,7 @@ def analyze_meal(request: AnalyzeRequest, rows: list[dict]) -> AnalyzeResponse:
         satiety_level,
     )
 
-    swaps = generate_swap_recommendations(selected_food_names)
+    swaps = generate_swap_recommendations(selected_food_names, diet_type)
 
     return AnalyzeResponse(
         total_grams=round(total_grams, 1),

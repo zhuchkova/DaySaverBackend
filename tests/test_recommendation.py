@@ -93,7 +93,7 @@ def test_generate_swap_recommendations():
         "Bread - white",
         "Nutella",
         "Juice - orange",
-    ])
+    ], "omnivore")
 
     assert len(swaps) >= 1
     assert any(
@@ -104,6 +104,15 @@ def test_generate_swap_recommendations():
         s.from_food == "Nutella" and s.to_food == "Butter - peanut"
         for s in swaps
     )
+
+def test_generate_swap_recommendations_vegan_croissant():
+    swaps = generate_swap_recommendations(["Croissant"], "vegan")
+    assert any(s.from_food == "Croissant" and s.to_food == "Tofu" for s in swaps)
+
+
+def test_generate_swap_recommendations_vegetarian_croissant():
+    swaps = generate_swap_recommendations(["Croissant"], "vegetarian")
+    assert any(s.from_food == "Croissant" and s.to_food == "Eggs" for s in swaps)
 
 
 def test_generate_energy_block_high():
