@@ -1,12 +1,22 @@
-from fastapi import FastAPI, Query, HTTPException, Body
+# uvicorn main:app --reload
+from fastapi import FastAPI, Query, HTTPException, Body, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 import psycopg
 from dotenv import load_dotenv
 import os
+from pathlib import Path
 
 from schemas.analyze import AnalyzeRequest, AnalyzeResponse
 from services.recommendation_service import analyze_meal
+
+
+from schemas.image_detection import DetectFromImageResponse
+from services.image_detection_service import (
+    build_candidate_catalog,
+    detect_from_image_with_gemini,
+)
+import tempfile
 
 load_dotenv()
 
@@ -349,3 +359,138 @@ def get_food_insight(food_id: int):
         raise HTTPException(status_code=404, detail="Food insight not found")
 
     return row
+
+
+def get_detection_candidates():
+    query = """
+    SELECT
+        f.id AS food_id,
+        f.name AS food_name,
+        f.emoji,
+        f.description,
+        p.id AS portion_id,
+        p.label AS portion_label
+    FROM foods f
+    JOIN portions p ON p.food_id = f.id
+    WHERE f.use_for_detection = TRUE
+    ORDER BY f.name, p.display_order;
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            return cur.fetchall()
+
+
+@app.post(
+    "/api/v1/detect-from-image",
+    response_model=DetectFromImageResponse,
+    summary="Detect breakfast items from an image",
+    description="""
+        Upload a breakfast photo as **multipart/form-data**.
+    
+        ### 📸 What to upload:
+        - A clear image of a breakfast meal
+        - Prefer a top-down or slightly angled photo
+        - Use good lighting
+        - Make sure ingredients are visible and not heavily covered
+    
+        ### 🧠 What happens:
+        - Gemini detects foods from the image
+        - The backend maps them to existing `food_id` and `portion_id` values from the app database
+        - The response returns editable detected items that can be reviewed before analysis
+    
+        ### ✅ Detectable foods for now:
+        The current demo is optimized for common breakfast foods, especially:
+        - eggs, fried eggs, omelet, bacon, salami, smoked salmon
+        - bread, toast, croissant, pancakes, waffles, oatmeal, muesli, granola
+        - yogurt, skyr, milk
+        - coffee, tea, juice, cocoa
+        - cucumber, tomato, avocado, bell peppers
+        - common toppings such as syrup, jam, honey, peanut butter
+        - selected fruits such as berries, banana, apple, orange, kiwi
+    
+        ### ✏️ How to use the result:
+        - Show detected items to the user
+        - Allow editing (remove / adjust / add manually)
+        - Send the final confirmed selection to `/api/v1/analyze`
+    
+        ### ⚠️ Notes:
+        - AI output is an estimate and may miss some foods
+        - Unknown foods are ignored instead of guessed
+        - Generic items such as `Tea`, `Coffee`, `Juice`, `Bread`, or `Toast` may be used when the image is not specific enough
+        """,
+    responses={
+        400: {"description": "Invalid image upload"},
+        500: {"description": "AI detection failed"},
+    },
+                )
+async def detect_from_image(
+    file: UploadFile = File(..., description="Breakfast image (jpg, jpeg, png)")
+):
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    if not google_api_key:
+        raise HTTPException(status_code=500, detail="GOOGLE_API_KEY is not configured")
+
+    # ✅ Save uploaded file temporarily
+    filename = file.filename or ""
+    suffix = Path(filename).suffix if "." in filename else ".jpg"
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            contents = await file.read()
+            tmp.write(contents)
+            temp_path = tmp.name
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to process uploaded file")
+
+    #Get candidate foods
+    try:
+        candidate_rows = get_detection_candidates()
+        candidate_catalog = build_candidate_catalog(candidate_rows)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to load candidate foods")
+
+    #Call Gemini
+    try:
+        gemini_result = detect_from_image_with_gemini(
+            image_path=temp_path,
+            api_key=google_api_key,
+            candidate_catalog=candidate_catalog,
+            model_name="gemini-2.5-flash",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image detection failed: {str(e)}")
+
+    #Validate + map results
+    row_map = {
+        (row["food_id"], row["portion_id"]): row
+        for row in candidate_rows
+    }
+
+    items = []
+    for detected in gemini_result.detected_items:
+        key = (detected.food_id, detected.portion_id)
+        row = row_map.get(key)
+
+        if not row:
+            continue  # skip hallucinated items
+
+        items.append({
+            "food_id": row["food_id"],
+            "food_name": row["food_name"],
+            "emoji": row.get("emoji"),
+            "portion_id": row["portion_id"],
+            "portion_label": row["portion_label"],
+            "quantity": detected.quantity,
+            "reason": detected.reason,
+        })
+
+    #Final response
+    return {
+        "image_summary": {
+            "detected_count": len(items),
+            "confidence_percent": 90 if items else 0
+        },
+        "items": items
+    }
